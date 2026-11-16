@@ -3098,7 +3098,13 @@ async function submitScore(){
   try { localStorage.setItem('mr_tag', tag); } catch (e){}
   if (lb.mine && lb.mine.score >= lastRun.score){ $('scoreMsg').textContent = '이미 더 높은 기록이 있어요'; return; }
   const row = { score: lastRun.score, tag, char: lastRun.char, dist: lastRun.dist, stage: lastRun.stage, pearls: lastRun.pearls, at: Date.now() };
-  $('tagBtn').disabled = true; $('scoreMsg').textContent = '기록하는 중…';
+  $('tagBtn').disabled = true; $('scoreMsg').textContent = '닉네임 확인하는 중…';
+  // 같은 닉네임은 한 사람만: 다른 사람이 이미 쓰고 있으면 등록 안 함
+  if (await tagTaken(tag)){
+    $('tagBtn').disabled = false; $('scoreMsg').textContent = `'${tag}'은(는) 이미 다른 사람이 쓰는 닉네임이에요. 다른 이름을 써 주세요!`;
+    $('tagIn').focus(); $('tagIn').select(); sfx('hit'); return;
+  }
+  $('scoreMsg').textContent = '기록하는 중…';
   try {
     if (lb.local){ const all = localBoard(); all[lb.myId] = row; localStorage.setItem('mr_board', JSON.stringify(all)); localRefresh(); }
     else if (lb.fb) await lb.fb.save(row);
@@ -3113,6 +3119,16 @@ async function submitScore(){
     else if (e?.code === 'quota_exceeded') $('scoreMsg').textContent = '점수표가 가득 찼어요. 주인에게 정리를 부탁해 주세요';
     else $('scoreMsg').textContent = '기록하지 못했어요. 잠시 후 다시 눌러 주세요';
   }
+}
+async function tagTaken(tag){
+  const other = rows => rows.some(r => r && r.id !== lb.myId && cleanTag(r.tag).toUpperCase() === tag);
+  if (other(lb.top)) return true;                       // 화면에 보이는 순위에서 먼저 확인
+  try {
+    if (lb.local) return other(Object.entries(localBoard()).map(([id, d]) => ({ id, tag: d?.tag })));
+    if (lb.fb) return await lb.fb.taken(tag);
+    if (lb.db){ const snap = await lb.db.collection('scores').where('tag', '==', tag).limit(5).get(); return snap.docs.some(d => d.id !== lb.myId); }
+  } catch (e){ console.warn('tag check', e); }
+  return false;
 }
 $('tagBtn').onclick = submitScore;
 $('tagIn').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') submitScore(); });   // 입력 중엔 게임 키가 안 먹게
@@ -3183,7 +3199,8 @@ async function firebaseBoard(){
     let id = null; try { id = localStorage.getItem('mr_uid'); } catch (e){}
     if (!id){ id = 'u' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try { localStorage.setItem('mr_uid', id); } catch (e){} }
     lb.myId = id;
-    lb.fb = { save: row => fs.setDoc(fs.doc(fdb, 'scores', id), row) };
+    lb.fb = { save: row => fs.setDoc(fs.doc(fdb, 'scores', id), row),
+      taken: async tag => (await fs.getDocs(fs.query(fs.collection(fdb, 'scores'), fs.where('tag', '==', tag), fs.limit(5)))).docs.some(d => d.id !== id) };
     const timer = setTimeout(() => { if (!lb.ready){ lb.err = '점수표를 아직 불러오지 못했어요'; renderBoard(); } }, 10000);
     fs.onSnapshot(fs.query(fs.collection(fdb, 'scores'), fs.orderBy('score', 'desc'), fs.limit(20)), snap => {
       lb.top = snap.docs.map(d => validRow(d.id, d.data())).filter(Boolean);
