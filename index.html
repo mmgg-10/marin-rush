@@ -1746,15 +1746,26 @@ const kelps = [];
 function makeArch(z, label, color){
   const grp = new THREE.Group();
   part(new THREE.TorusGeometry(5.6, .45, 12, 40, Math.PI), M(color, { emissive: color, emissiveIntensity: .35 }), grp, [0, -1, 0]);
-  const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
-  g.fillStyle = '#fff'; g.beginPath(); g.roundRect(0, 0, 512, 128, 40); g.fill();
-  g.font = '84px Jua, sans-serif'; g.fillStyle = '#e2558f'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, 256, 70);
+  // 흰 간판: 아치 기둥에 안 가리게 다가오는 쪽(앞)으로 빼서 매달기
+  const c = document.createElement('canvas'); c.width = 640; c.height = 160; const g = c.getContext('2d');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  part(new THREE.PlaneGeometry(5.4, 1.35), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, fog: false }), grp, [0, 4.6, 0]);
+  const hex = '#' + new THREE.Color(color).getHexString();
+  const draw = txt => {
+    g.clearRect(0, 0, 640, 160);
+    g.fillStyle = hex; g.beginPath(); g.roundRect(0, 0, 640, 160, 52); g.fill();          // 아치 색 테두리
+    g.fillStyle = '#fff'; g.beginPath(); g.roundRect(10, 10, 620, 140, 44); g.fill();
+    g.font = '92px Jua, sans-serif'; g.fillStyle = '#e2558f'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, 320, 86);
+    t.needsUpdate = true;
+  };
+  draw(label); document.fonts?.ready.then(() => draw(grp.userData.label || label));
+  part(new THREE.PlaneGeometry(6.4, 1.6), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, fog: false, transparent: true }), grp, [0, 3.7, 1.1]);
+  grp.userData.setLabel = txt => { grp.userData.label = txt; draw(txt); };
   placeOnTrack(grp, z, 0, 0); scene.add(grp);
+  return grp;
 }
 makeArch(-2, 'START', 0x7fe3f0);
-makeArch(TRACK_LEN, 'FINISH 🏁', 0xffb3d4);
+const finishArch = makeArch(TRACK_LEN, '스테이지 1 🏁', 0xffb3d4);
+const setFinishSign = () => finishArch.userData.setLabel(`스테이지 ${stage} 🏁`);
 
 // 물방울 & 빛줄기 (카메라 주변을 따라다님)
 const BUB = 420, bubGeo = new THREE.BufferGeometry(), bubPos = new Float32Array(BUB * 3), bubSpd = new Float32Array(BUB);
@@ -2436,7 +2447,7 @@ function resetRace(fixedSeed){
   for (const r of racers){ r.podRank = 0; r.emoteT = 0; }
   clearEffects(); itemRoll = 0; playerPlace = 5; prevRank = 0; overtakeCd = 0; faceOverrideT = 0;
   Object.assign(anim, { twirl: 0, hop: 0, throwT: 0, squash: 0, wasAir: false, jumpT: -1 });
-  stage = 1; warpDist = 0; warpCd = 0; renderHP();
+  stage = 1; warpDist = 0; warpCd = 0; renderHP(); setFinishSign();
   gauge = 0; pearlCount = 0; giantCount = 0; finishOrder = []; resultTimer = -1; raceTime = 0; shake = 0;
   shieldBubble.visible = false;
 }
@@ -2690,7 +2701,7 @@ function warpCheck(dt){
   warpCd = 2;
   const shift = lead - 45;
   warpDist += shift; stage++;
-  buildCourse(seed++); warpSnap = true;   // 화면 번쩍임 전환 없이 자막만
+  buildCourse(seed++); warpSnap = true; setFinishSign();   // 화면 번쩍임 전환 없이 자막만
   for (const r of racers){
     Object.assign(r, { dist: Math.max(4 + Math.random() * 6, r.dist - shift), y: 0, vy: 0, floor: 0, doubled: false, dblPending: false, autoJumpT: 0, climbUntil: 0, holdZ: null,
       decided: new Set(), pendingJump: null, jumpFrom: 0 });
