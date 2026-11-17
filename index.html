@@ -993,7 +993,7 @@ function selectChar(key){
   $('markers').innerHTML = racers.map((r, i) => `<div class="mk ${r.isPlayer ? 'me' : ''}" id="mk${i}">${r.emoji}</div>`).join('');
   document.querySelectorAll('.char').forEach(b => { const on = b.dataset.key === key; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
   const c = charOf(sel);
-  $('charInfo').innerHTML = `${c.emoji} <b>${c.name}</b> · ${c.hidden ? `<span class="hid">${c.trait}</span>` : c.trait}<br>${c.desc} <span class="muted">(능력치는 모두 같아요)</span>`;
+  $('charInfo').innerHTML = `${c.emoji} <b>${c.name}</b><br>${c.desc} <span class="muted">(능력치는 모두 같아요)</span>`;
   resetRace();
   refreshPortraits();
 }
@@ -1004,7 +1004,7 @@ function setCharArt(el, face, crop){
 }
 function refreshPortraits(){ curFace = 'normal'; setCharArt($('faceImg'), 'normal'); }
 $('chars').innerHTML = CHARS.filter(c => !c.hidden).map(c =>
-  `<button class="char" data-key="${c.key}" role="radio" aria-checked="false"><img src="${c.img}" alt=""><b>${c.name}</b><small>${c.trait}</small></button>`).join('')
+  `<button class="char" data-key="${c.key}" role="radio" aria-checked="false"><img src="${c.img}" alt=""><b>${c.name}</b></button>`).join('')
   + `<button class="char rand" id="randBtn" aria-label="랜덤 선택 (히든 캐릭터 10%)"><span class="dice"><i>🎲</i></span><b>랜덤</b><small class="hid">✨히든 10%</small></button>`;
 document.querySelectorAll('.char[data-key]').forEach(b => b.addEventListener('click', () => { selectChar(b.dataset.key); sfx('click'); }));
 // 랜덤: 카드를 빠르게 훑다가 멈춤. 10% 확률로 히든 캐릭터 '냥어' 등장
