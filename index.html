@@ -170,6 +170,18 @@ body.edmSel #startScreen .card{border-color:rgba(255,214,74,.7);box-shadow:0 0 3
 .tagRow #tagBtn{background:linear-gradient(180deg,#fff0a0,#ffc93a);color:#5a2a00;box-shadow:0 5px 0 #b9761a,0 0 12px rgba(255,214,74,.7)}
 @media (prefers-reduced-motion:reduce){.tagRow,.tagRow::before,.tagRow::after,.tagRow input{animation:none}}
 .scoreMsg{min-height:18px;margin:6px 0 0;font-size:13px}
+/* 결과 화면 명예의 전당: 오락실 하이스코어처럼, 이번 기록 자리에 바로 이름 적기 */
+.resHof{margin:10px 0 8px;padding:8px 10px 4px;border-radius:18px;background:rgba(0,20,40,.4);border:1px solid rgba(255,255,255,.18)}
+.resHofHead{font-weight:900;font-size:17px;color:#ffe680;letter-spacing:1px;text-shadow:0 0 8px rgba(255,200,60,.8)}
+.resBoard{margin:6px 0}
+.resBoard li{padding:5px 8px}
+.resBoard li.gap{display:block;text-align:center;background:none;padding:0;opacity:.7}
+.resBoard li.pending{grid-template-columns:34px 1fr auto;background:linear-gradient(90deg,rgba(255,206,70,.35),rgba(255,140,200,.2));border:2px solid #ffd84a;animation:glowGold 1s ease-in-out infinite alternate}
+.resBoard li.pending .rk,.resBoard li.pending .sc{color:#ffe680;text-shadow:0 0 8px rgba(255,200,60,.95)}
+.resBoard .tagRow{margin:0;padding:3px 5px;gap:5px;justify-content:flex-start;animation:none;border-width:1.5px}
+.resBoard .tagRow::before{left:-6px;top:-9px;font-size:14px}.resBoard .tagRow::after{right:-4px;bottom:-9px;font-size:11px}
+.resBoard .tagRow input{width:86px;min-width:0;font-size:17px;padding:4px 6px}
+.resBoard .tagRow #tagBtn{margin:0;font-size:15px;padding:5px 12px}
 .board{width:min(460px,100%);max-height:92vh;overflow-y:auto}
 .moreBtn{margin:2px auto 6px;display:block;font-size:14px;padding:6px 16px}
 .moreBtn[hidden]{display:none}
@@ -424,14 +436,14 @@ body:not(.playing) #faceBox, body:not(.playing) #itemBtn, body:not(.playing) #hp
     <div class="resface facesprite" id="resFace" role="img" aria-label="마린냥 표정"></div>
     <h1 id="resTitle">우승!</h1>
     <p id="resSub"></p>
-    <table id="resTable"></table>
     <div class="scoreBox" id="scoreBox">
       <div class="scoreBig"><span id="scoreNum">0</span><small>점</small></div>
       <div class="scoreParts" id="scoreParts"></div>
       <div class="newRec" id="newRec" hidden>✨ NEW RECORD! ✨</div>
-      <div class="tagRow" id="tagRow"><input id="tagIn" maxlength="6" placeholder="이니셜" aria-label="기록에 남길 이니셜 (최대 6자)"><button class="btn sub" id="tagBtn">기록 남기기</button></div>
+      <div class="tagRow" id="tagRow"><input id="tagIn" maxlength="6" placeholder="이름" aria-label="명예의 전당에 남길 이름 (최대 6자)"><button class="btn sub" id="tagBtn">등록</button></div>
       <p class="scoreMsg" id="scoreMsg"></p>
     </div>
+    <div class="resHof"><div class="resHofHead">🏆 명예의 전당</div><ol class="boardList resBoard" id="resBoard"></ol></div>
     <button class="btn" id="retryBtn">다시 달리기</button>
     <button class="btn sub" id="changeBtn">캐릭터 바꾸기</button>
   </div>
@@ -3040,7 +3052,6 @@ function showResult(){
   $('resTitle').textContent = player.dead ? `💫 GAME OVER · ${place}위` : place === 1 ? '🏆 우승!' : place <= 3 ? `🥈 ${place}위!` : `${place}위`;
   $('resSub').textContent = (place === 1 ? '바다의 챔피언 마린냥!' : place <= 3 ? '아깝다! 메달 획득!' : '다시 도전해봐요!') + `  ·  🫧 진주 ${pearlCount}개`;
   $('resSub').textContent = `🌊 스테이지 ${stage} · ${runDist()}m 달림  ·  🫧 진주 ${pearlCount}개`;
-  $('resTable').innerHTML = list.map((e, i) => `<tr class="${e.r.isPlayer ? 'me' : ''}"><td>${['🥇','🥈','🥉','4','5','6'][i]}</td><td>${e.r.emoji} ${e.r.name}</td><td>${e.r.dead ? '탈락 ' : ''}${(e.r.finalDist ?? Math.floor(warpDist + Math.max(0, e.r.dist))).toLocaleString()}m</td></tr>`).join('');
   $('resultScreen').classList.remove('hidden'); $('center').textContent = '';
   state = 'result';
   showScore(place, list.find(e => e.r.isPlayer).time);
@@ -3103,7 +3114,10 @@ function showScore(place, time){
   $('tagBtn').disabled = false;
   $('scoreMsg').textContent = !lb.canWrite ? '보기 전용이라 기록을 남길 수 없어요'
     : total <= best ? `내 최고 기록 ${best.toLocaleString()}점을 넘으면 등록돼요`
-    : `지금 순위 예상: ${expectedRank(total)}위 — 이니셜을 남겨요!`;
+    : `명예의 전당 ${expectedRank(total)}위! 반짝이는 칸에 이름을 적어요`;
+  renderResBoard();
+  // 이름 적을 줄이 화면에 보이게 카드를 스크롤
+  setTimeout(() => { const li = document.querySelector('#resBoard li.pending'); if (li) li.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 700);
 }
 async function submitScore(){
   if (!lastRun || lastRun.submitted) return;
@@ -3143,6 +3157,33 @@ async function tagTaken(tag){
   } catch (e){ console.warn('tag check', e); }
   return false;
 }
+// 결과 화면 명예의 전당: TOP 10 + 아직 등록 안 한 이번 기록을 순위 자리에 끼워 이름 칸을 그 줄에 둠
+function renderResBoard(){
+  const ol = $('resBoard'); if (!ol || !lastRun) return;
+  const tr = $('tagRow'), pend = !lastRun.submitted && !tr.hidden, hadFocus = document.activeElement === $('tagIn');
+  const rows = lb.top.filter(r => !(pend && r.id === lb.myId)).map(r => ({ ...r }));
+  if (pend) rows.push({ pending: true, score: lastRun.score, char: lastRun.char });
+  rows.sort((a, b) => b.score - a.score);
+  const pi = rows.findIndex(r => r.pending);
+  let show = rows.slice(0, 10).map((r, i) => [r, i]);
+  if (pi >= 10) show = [...rows.slice(0, 9).map((r, i) => [r, i]), null, [rows[pi], pi]];
+  if (pend) $('scoreBox').appendChild(tr);   // 다시 그리기 전에 이름 칸을 안전한 곳으로
+  ol.textContent = '';
+  if (!show.length){ const li = document.createElement('li'); li.className = 'empty'; li.textContent = lb.ready ? '아직 기록이 없어요' : '불러오는 중…'; ol.appendChild(li); }
+  for (const it of show){
+    const li = document.createElement('li');
+    if (!it){ li.className = 'gap'; li.textContent = '⋮'; ol.appendChild(li); continue; }
+    const [r, i] = it;
+    li.className = (r.pending ? 'pending ' : i < 3 ? `top${i + 1} ` : '') + (r.id && r.id === lb.myId ? 'me' : '');
+    const rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = ['👑', '🥈', '🥉'][i] || String(i + 1);
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = r.score.toLocaleString();
+    let mid;
+    if (r.pending){ mid = tr; }
+    else { mid = document.createElement('span'); mid.className = 'tg'; mid.textContent = `${CHAR_EMOJI(r.char)} ${r.tag}`; }
+    li.append(rk, mid, sc); ol.appendChild(li);
+  }
+  if (hadFocus) $('tagIn').focus();
+}
 $('tagBtn').onclick = submitScore;
 $('tagIn').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') submitScore(); });   // 입력 중엔 게임 키가 안 먹게
 let boardMore = false;   // 처음엔 10등까지, '더 보기'로 20등까지
@@ -3162,6 +3203,7 @@ function renderBoard(){
   const inTop = lb.top.slice(0, boardMore ? 20 : 10).some(r => r.id === lb.myId);
   $('boardMine').textContent = lb.mine && !inTop ? `내 최고 기록: ${lb.mine.tag} ${lb.mine.score.toLocaleString()}점` : '';
   $('boardNote').textContent = lb.err || (lb.local ? '(테스트 화면 — 이 브라우저에만 저장돼요)' : '');
+  renderResBoard();
   const c = lb.top[0];
   const ch = c && CHARS.find(x => x.key === c.char), img = $('champImg');
   $('champCard').classList.toggle('none', !c);
