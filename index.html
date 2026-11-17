@@ -1758,7 +1758,10 @@ function makeArch(z, label, color){
     t.needsUpdate = true;
   };
   draw(label); document.fonts?.ready.then(() => draw(grp.userData.label || label));
-  part(new THREE.PlaneGeometry(6.4, 1.6), new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, fog: false, transparent: true }), grp, [0, 3.7, 1.1]);
+  // 앞·뒤 양쪽에 한 장씩 (한 면만 보이게) → 어느 쪽에서 봐도 글자가 뒤집히지 않음
+  const signMat = new THREE.MeshBasicMaterial({ map: t, side: THREE.FrontSide, fog: false, transparent: true }), signGeo = new THREE.PlaneGeometry(6.4, 1.6);
+  part(signGeo, signMat, grp, [0, 3.7, 1.1]);
+  part(signGeo, signMat, grp, [0, 3.7, -1.1], [1, 1, 1], [0, Math.PI, 0]);
   grp.userData.setLabel = txt => { grp.userData.label = txt; draw(txt); };
   placeOnTrack(grp, z, 0, 0); scene.add(grp);
   return grp;
