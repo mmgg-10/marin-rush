@@ -3108,8 +3108,8 @@ function showScore(place, time){
   $('scoreParts').textContent = `거리 ${parts.dist.toLocaleString()} + 스테이지 ${parts.stage.toLocaleString()} + 진주 ${parts.pearl.toLocaleString()}` + (parts.giant ? ` + 거대화 ${parts.giant.toLocaleString()}` : '');
   try { $('tagIn').value = localStorage.getItem('mr_tag') || ''; } catch (e){}
   const best = lb.mine?.score ?? -1, champ = lb.top[0]?.score ?? -1;
-  $('newRec').hidden = !(total > best);
-  $('newRec').textContent = total > champ && lb.ready ? '👑 1등 기록 경신! 👑' : '✨ NEW RECORD! ✨';
+  $('newRec').hidden = !(total > best && total > champ && lb.ready);   // 명예의 전당 1등이 될 때만
+  $('newRec').textContent = '✨ NEW BEST! ✨';
   $('tagRow').hidden = !lb.canWrite || total <= best;
   $('tagBtn').disabled = false;
   $('scoreMsg').textContent = !lb.canWrite ? '보기 전용이라 기록을 남길 수 없어요'
