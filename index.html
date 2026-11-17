@@ -1761,7 +1761,7 @@ const kelps = [];
 // 출발/결승 아치
 function makeArch(z, label, color){
   const grp = new THREE.Group();
-  part(new THREE.TorusGeometry(5.6, .45, 12, 40, Math.PI), M(color, { emissive: color, emissiveIntensity: .35 }), grp, [0, -1, 0]);
+  part(new THREE.TorusGeometry(5.6, .45, 12, 40, Math.PI), M(color, { emissive: color, emissiveIntensity: .35 }), grp, [0, -1, 0], [1, 1.5, 1]);   // 높이 1.5배
   // 흰 간판: 아치 기둥에 안 가리게 다가오는 쪽(앞)으로 빼서 매달기
   const c = document.createElement('canvas'); c.width = 640; c.height = 160; const g = c.getContext('2d');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
@@ -1776,18 +1776,18 @@ function makeArch(z, label, color){
   draw(label); document.fonts?.ready.then(() => draw(grp.userData.label || label));
   // 앞·뒤 양쪽에 한 장씩 (한 면만 보이게) → 어느 쪽에서 봐도 글자가 뒤집히지 않음
   const signMat = new THREE.MeshBasicMaterial({ map: t, side: THREE.FrontSide, fog: false, transparent: true }), signGeo = new THREE.PlaneGeometry(6.4, 1.6);
-  part(signGeo, signMat, grp, [0, 3.7, 1.1]);
-  part(signGeo, signMat, grp, [0, 3.7, -1.1], [1, 1, 1], [0, Math.PI, 0]);
+  part(signGeo, signMat, grp, [0, 6.2, 1.1]);
+  part(signGeo, signMat, grp, [0, 6.2, -1.1], [1, 1, 1], [0, Math.PI, 0]);
   grp.userData.setLabel = txt => { grp.userData.label = txt; draw(txt); };
   placeOnTrack(grp, z, 0, 0); scene.add(grp);
   return grp;
 }
 const startArch = makeArch(-2, 'START', 0x7fe3f0);
-const finishArch = makeArch(TRACK_LEN, '스테이지 1 🏁', 0xffb3d4);
-// 지금 달리는 구간 끝의 아치에 '스테이지 N' 표시 (처음 출발 아치는 START)
+const finishArch = makeArch(TRACK_LEN, '스테이지 2', 0xffb3d4);
+// 지금 달리는 구간 끝의 아치에 다음 스테이지 번호 표시 (스테이지 1 간판은 없음, 처음 출발 아치는 START)
 const setFinishSign = () => {
   if (stage === 1) startArch.userData.setLabel('START');
-  (curSeg === 0 ? finishArch : startArch).userData.setLabel(`스테이지 ${stage} 🏁`);
+  (curSeg === 0 ? finishArch : startArch).userData.setLabel(`스테이지 ${stage + 1}`);   // 아치를 지나면 들어갈 다음 스테이지
 };
 
 // 물방울 & 빛줄기 (카메라 주변을 따라다님)
