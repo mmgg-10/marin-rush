@@ -500,16 +500,24 @@ const PATH_PTS = [
   [60, -2, -170], [90, 8, -240], [70, 16, -310], [20, 22, -330], [-30, 18, -300],                  // 다시 솟구치는 나선 오르막
   [-60, 12, -360], [-40, 6, -420], [0, 4, -470], [40, 4, -520], [40, 4, -600], [40, 4, -680],     // S자 → 결승 직선 → 시상대
 ];
-const pathCurve = new THREE.CatmullRomCurve3(PATH_PTS.map(p => new THREE.Vector3(...p)), false, 'centripetal');
-const PATH_LEN = pathCurve.getLength();
-const TRACK_LEN = Math.floor(PATH_LEN - 95);
+// 결승 직선 뒤로 오른쪽으로 크게 돌아 출발선 뒤로 다시 이어지는 귀환 구간 → 트랙 전체가 하나의 고리
+// (스테이지가 바뀌어도 순간이동 없이 계속 달림: 1스테이지 = 출발~결승 아치, 2스테이지 = 귀환 구간, 3스테이지 = 다시 출발~결승 …)
+const RETURN_PTS = [
+  [48, 5, -760], [100, 7, -805], [160, 9, -770], [190, 10, -660], [200, 8, -510], [202, 6, -360],
+  [196, 4, -210], [180, 2, -70], [150, 0, 50], [100, 0, 112], [42, 0, 108], [6, 0, 62],
+];
+const OPEN_LEN = new THREE.CatmullRomCurve3(PATH_PTS.map(p => new THREE.Vector3(...p)), false, 'centripetal').getLength();
+const pathCurve = new THREE.CatmullRomCurve3([...PATH_PTS, ...RETURN_PTS].map(p => new THREE.Vector3(...p)), true, 'centripetal');
+const PATH_LEN = pathCurve.getLength();          // 고리 한 바퀴
+const TRACK_LEN = Math.floor(OPEN_LEN - 95);     // 1스테이지 길이 (결승 아치 위치) — 예전과 같음
 const FR = [];
 {
   const n = Math.ceil(PATH_LEN), up = new THREE.Vector3(0, 1, 0), raw = [];
-  for (let i = 0; i <= n; i++){ const u = Math.min(1, i / PATH_LEN); raw.push({ p: pathCurve.getPointAt(u), t: pathCurve.getTangentAt(u) }); }
-  // 수평 회전량 → 뱅크 각도 (안쪽으로 기울임), 부드럽게 평균
-  const turn = raw.map((f, i) => { const a = raw[Math.max(0, i - 3)].t, b = raw[Math.min(n, i + 3)].t; return Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z) / 6; });
-  const bank = turn.map((_, i) => { let s = 0, c = 0; for (let k = -14; k <= 14; k++){ const j = i + k; if (j >= 0 && j <= n){ s += turn[j]; c++; } } return THREE.MathUtils.clamp(s / c * 24, -.55, .55); });
+  for (let i = 0; i < n; i++){ const u = i / n; raw.push({ p: pathCurve.getPointAt(u), t: pathCurve.getTangentAt(u) }); }
+  const N = raw.length, at = i => raw[((i % N) + N) % N];
+  // 수평 회전량 → 뱅크 각도 (안쪽으로 기울임), 부드럽게 평균 (고리라 앞뒤가 이어짐)
+  const turn = raw.map((f, i) => { const a = at(i - 3).t, b = at(i + 3).t; return Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z) / 6; });
+  const bank = turn.map((_, i) => { let s = 0; for (let k = -14; k <= 14; k++) s += turn[((i + k) % N + N) % N]; return THREE.MathUtils.clamp(s / 29 * 24, -.55, .55); });
   raw.forEach((f, i) => {
     const b = new THREE.Vector3().crossVectors(f.t, up).normalize(), nn = new THREE.Vector3().crossVectors(b, f.t).normalize();
     const q = new THREE.Quaternion().setFromAxisAngle(f.t, bank[i]); b.applyQuaternion(q); nn.applyQuaternion(q);
@@ -518,12 +526,8 @@ const FR = [];
 }
 const _fa = { p: new THREE.Vector3(), t: new THREE.Vector3(), b: new THREE.Vector3(), n: new THREE.Vector3() };
 function frameAt(s){
-  const last = FR.length - 1;
-  if (s <= 0 || s >= last){
-    const F = FR[s <= 0 ? 0 : last], d = s <= 0 ? s : s - last;
-    _fa.p.copy(F.p).addScaledVector(F.t, d); _fa.t.copy(F.t); _fa.b.copy(F.b); _fa.n.copy(F.n); return _fa;
-  }
-  const i = Math.floor(s), f = s - i, A = FR[i], C = FR[i + 1];
+  const N = FR.length, u = (s * N / PATH_LEN) % N, w = u < 0 ? u + N : u;   // 고리: 어느 거리든 한 바퀴 안으로 접음
+  const i = Math.floor(w) % N, f = w - Math.floor(w), A = FR[i], C = FR[(i + 1) % N];
   _fa.p.lerpVectors(A.p, C.p, f); _fa.t.lerpVectors(A.t, C.t, f).normalize();
   _fa.b.lerpVectors(A.b, C.b, f).normalize(); _fa.n.lerpVectors(A.n, C.n, f).normalize();
   return _fa;
@@ -1645,12 +1649,12 @@ const nacreTex = canvasTex(512, 512, (g, w, h) => {
 });
 nacreTex.repeat.set(1, 1);
 
-const TRACK_END = Math.min(FR.length - 1, TRACK_LEN + 52), HALF_W = 4.8;
+const TRACK_END = PATH_LEN + 1, HALF_W = 4.8;   // 고리 전체 (+1 로 이음매 닫기)
 // 트랙 좌표로 정의된 띠(strip) 메시: side(s) → [왼쪽 점, 오른쪽 점]
 function stripGeo(side, colorFn){
   const pos = [], uv = [], col = [], idx = []; let k = 0;
   const c = new THREE.Color();
-  for (let s = -8; s <= TRACK_END; s += 1){
+  for (let s = 0; s <= TRACK_END; s += 1){
     const [a, b] = side(s);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z); uv.push(0, s / 9.6, 1, s / 9.6);
     if (colorFn){ colorFn(s, c); col.push(c.r, c.g, c.b, c.r, c.g, c.b); }
@@ -1675,13 +1679,13 @@ scene.add(trackTop, trackBottom, sideL, sideR);
 const railMat = M(0xffd9ec, { emissive: 0xff9fd0, emissiveIntensity: .45 });
 const pearlMat = M(0xffffff, { emissive: 0xcfe8ff, emissiveIntensity: .5 });
 const beadGeo = new THREE.SphereGeometry(.34, 12, 10);
-const beadCount = Math.floor((TRACK_END + 8) / 3) * 2, beads = new THREE.InstancedMesh(beadGeo, pearlMat, beadCount);
+const beadCount = Math.floor((TRACK_END + 8) / 3) * 2 + 4, beads = new THREE.InstancedMesh(beadGeo, pearlMat, beadCount);
 {
   let bi = 0; const m4 = new THREE.Matrix4();
   for (const sd of [-1, 1]){
-    const pts = []; for (let s = -8; s <= TRACK_END; s += 3) pts.push(trackPoint(s, sd * (HALF_W + .15), -.78));
-    scene.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, .2, 8, false), railMat));
-    for (let s = -8; s <= TRACK_END && bi < beadCount; s += 3){ m4.makeTranslation(trackPoint(s, sd * (HALF_W + .15), -.5)); beads.setMatrixAt(bi++, m4); }
+    const pts = []; for (let s = 0; s < PATH_LEN - 1.5; s += 3) pts.push(trackPoint(s, sd * (HALF_W + .15), -.78));
+    scene.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), pts.length * 3, .2, 8, true), railMat));
+    for (let s = 0; s < PATH_LEN - 1.5 && bi < beadCount; s += 3){ m4.makeTranslation(trackPoint(s, sd * (HALF_W + .15), -.5)); beads.setMatrixAt(bi++, m4); }
   }
   beads.count = bi; scene.add(beads);
 }
@@ -1724,7 +1728,7 @@ const kelps = [];
   const rockGeo = new THREE.DodecahedronGeometry(1, 0), rockMat = M(0x7b7f95);
   const branchGeo = new THREE.CylinderGeometry(.09, .14, 1, 6); branchGeo.translate(0, .5, 0);
   const bh = new THREE.Vector3();
-  for (let s = -20; s < FR.length; s += 4.2){
+  for (let s = 0; s < PATH_LEN; s += 4.2){
     const F = frameAt(s), px = F.p.x, pz = F.p.z;
     bh.set(F.b.x, 0, F.b.z).normalize();
     for (const side of [-1, 1]){
@@ -1778,9 +1782,13 @@ function makeArch(z, label, color){
   placeOnTrack(grp, z, 0, 0); scene.add(grp);
   return grp;
 }
-makeArch(-2, 'START', 0x7fe3f0);
+const startArch = makeArch(-2, 'START', 0x7fe3f0);
 const finishArch = makeArch(TRACK_LEN, '스테이지 1 🏁', 0xffb3d4);
-const setFinishSign = () => finishArch.userData.setLabel(`스테이지 ${stage} 🏁`);
+// 지금 달리는 구간 끝의 아치에 '스테이지 N' 표시 (처음 출발 아치는 START)
+const setFinishSign = () => {
+  if (stage === 1) startArch.userData.setLabel('START');
+  (curSeg === 0 ? finishArch : startArch).userData.setLabel(`스테이지 ${stage} 🏁`);
+};
 
 // 물방울 & 빛줄기 (카메라 주변을 따라다님)
 const BUB = 420, bubGeo = new THREE.BufferGeometry(), bubPos = new Float32Array(BUB * 3), bubSpd = new Float32Array(BUB);
@@ -1887,10 +1895,24 @@ const boltTex = canvasTex(128, 128, g => {
   for (const [x0, y0, x1, y1] of [[64, 4, 54, 124], [20, 30, 108, 100]]){ bolt(x0, y0, x1, y1, 9, 'rgba(120,240,255,.9)'); bolt(x0, y0, x1, y1, 3.5, '#fffbd0'); }
 });
 const zapMat = () => new THREE.SpriteMaterial({ map: boltTex, color: 0xfff36a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, opacity: 0 });
-function buildCourse(seed){
+// 고리 위 [s0, s1) 구간의 코스를 stg 스테이지 규칙으로 새로 깔기 (그 구간의 예전 물건은 치움)
+const SEGS = () => [[0, TRACK_LEN], [TRACK_LEN, PATH_LEN]];
+function clearSegment(s0, s1){
+  if (!course) return;
+  const inR = z => z >= s0 && z < s1, top = o => { while (o && o.parent && o.parent !== course) o = o.parent; return o; };
+  const drop = (arr, zOf, objOf) => arr.filter(it => { if (!inR(zOf(it))) return true; const o = top(objOf(it)); if (o && o.parent === course) course.remove(o); return false; });
+  obstacles = drop(obstacles, o => o.z, o => o.grp); pearls = drop(pearls, p => p.z, p => p.m); rings = drop(rings, r => r.z, r => r.m);
+  shields = drop(shields, x => x.z, x => x.m); itemBoxes = drop(itemBoxes, x => x.z, x => x.m); goldItems = drop(goldItems, x => x.z, x => x.m);
+  platforms = drop(platforms, p => p.z0, p => p.mesh); dblSigns = drop(dblSigns, x => x.z, x => x.s); sngSigns = drop(sngSigns, x => x.z, x => x.s);
+}
+function buildCourse(seed){   // 레이스 시작: 1구간 = 스테이지 1, 2구간 = 스테이지 2
   if (course) scene.remove(course);
   course = new THREE.Group(); scene.add(course);
   obstacles = []; pearls = []; rings = []; shields = []; itemBoxes = []; platforms = []; goldItems = []; dblSigns = []; sngSigns = [];
+  buildSegment(seed, 0, TRACK_LEN, 1); buildSegment(seed + 7777, TRACK_LEN, PATH_LEN, 2);
+}
+function buildSegment(seed, s0, s1, stg){
+  clearSegment(s0, s1);
   const rng = mulberry32(seed);
   const addPearl = (z, lane, y = .3) => { const m = placeOnTrack(part(G.pearl, MAT.pearl, course), z, LANES[lane], y); pearls.push({ lane, z, y, m, taken: false, base: m.position.clone(), n: frameAt(z).n.clone() }); };
   const addBox = (z, lane, y = 0) => {
@@ -1901,7 +1923,7 @@ function buildCourse(seed){
   };
   const addPlat = (z0, z1, lanes, h, ci) => {
     const xs = lanes.map(l => LANES[l]), p = { z0, z1, xc: (Math.min(...xs) + Math.max(...xs)) / 2, hw: (Math.max(...xs) - Math.min(...xs)) / 2 + 1.5, h };
-    platforms.push(p); course.add(platformMesh(p, PLAT_COLORS[ci % PLAT_COLORS.length])); return p;
+    p.mesh = platformMesh(p, PLAT_COLORS[ci % PLAT_COLORS.length]); platforms.push(p); course.add(p.mesh); return p;
   };
   const addObstacle = (type, lane, z) => {
     const x = LANES[lane], grp = new THREE.Group(); placeOnTrack(grp, z, x, 0); course.add(grp);
@@ -1951,12 +1973,13 @@ function buildCourse(seed){
     obstacles.push({ type, lane, z, h, grp, hit: new Set(), ph: rng() * 6, lo: 0 });
   };
 
-  let z = 60, nextSpecial = 140 + rng() * 40, specialK = 0;
-  while (z < TRACK_LEN - 40){
+  const lead = s0 > 0 ? 110 : 60;   // 2구간은 결승 아치 뒤 시상대 자리를 비워 둠
+  let z = s0 + lead, nextSpecial = s0 + lead + 80 + rng() * 40, specialK = 0;
+  while (z < s1 - 40){
     if (z >= nextSpecial){
       // ---- 특수 구조물 ----
       // 스테이지 1: 벽 없음(유목 허들만) · 2: 높은 턱 등장 · 3~: 높은 턱 + 2단 계단
-      const kinds = stage <= 1 ? ['hurdle'] : stage === 2 ? ['ledge', 'hurdle', 'ledge'] : ['steps', 'ledge', 'hurdle', 'steps', 'ledge'];
+      const kinds = stg <= 1 ? ['hurdle'] : stg === 2 ? ['ledge', 'hurdle', 'ledge'] : ['steps', 'ledge', 'hurdle', 'steps', 'ledge'];
       const kind = kinds[specialK % kinds.length]; specialK++;
       if (kind === 'steps'){           // 2단 계단: 1단(1.1) → 2단(2.2) → 내려옴, 위엔 진주
         addPlat(z, z + 9, [0, 1, 2], 1.1, specialK);
@@ -1971,7 +1994,7 @@ function buildCourse(seed){
         for (let k = 0; k < 5; k++) addPearl(z + 2 + k * 2, lane, 2.9);
         addBox(z + 12.5, lane, 2.6);
         const other = [0, 1, 2].filter(l => l !== lane);
-        addObstacle(rng() < .5 && stage >= 3 ? 'urchin' : 'rock', other[rng() * 2 | 0], z + 7);   // 성게는 스테이지 3부터
+        addObstacle(rng() < .5 && stg >= 3 ? 'urchin' : 'rock', other[rng() * 2 | 0], z + 7);   // 성게는 스테이지 3부터
         z += 28;
       } else {                         // 유목 허들: 세 레인 다 막음 → 무조건 점프
         for (const l of [0, 1, 2]) addObstacle('bar', l, z);
@@ -1987,21 +2010,21 @@ function buildCourse(seed){
     for (let i = 0; i < 3; i++){
       const lane = order[i], x = LANES[lane];
       if (i < nBlock){
-        const r = rng(), type = stage >= 3 ? (r < .38 ? 'rock' : r < .6 ? 'jelly' : r < .78 ? 'weed' : 'urchin')
+        const r = rng(), type = stg >= 3 ? (r < .38 ? 'rock' : r < .6 ? 'jelly' : r < .78 ? 'weed' : 'urchin')
           : (r < .46 ? 'rock' : r < .73 ? 'jelly' : 'weed');   // 성게는 스테이지 3부터 (1·2는 바위·해파리·해초만)   // 핑크 산호벽은 뺌
         addObstacle(type, lane, z);
       } else {
         const r = rng();
         if (r < .14){ const m = placeOnTrack(part(G.ring, MAT.ring, course), z, x, .9); rings.push({ lane, z, m, used: new Set() }); }
         else if (r < .19){ const m = makeShellPickup(); placeOnTrack(m, z, x, .95); course.add(m); shields.push({ lane, z, m, taken:false, ph: rng() * 6 }); }
-        else if (r < .22375 && z > 200){   // 황금 불가사리 (드물게, 초반 이후) — 빈도 다시 절반 (6.75% → 3.375%)
+        else if (r < .22375 && z - s0 > 200){   // 황금 불가사리 (드물게, 초반 이후) — 빈도 다시 절반 (6.75% → 3.375%)
           const m = new THREE.Group(); placeOnTrack(m, z, x, .9); course.add(m);
           part(goldGeo, goldMat, m);
           const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: aura.material.map, color: 0xffd84a, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: .8, fog: false }));
           halo.scale.setScalar(2.4); m.add(halo);
           goldItems.push({ lane, z, m, cool: 0 });
         }
-        else if (r < .31 && !(z > 200 && r >= .22375)) addBox(z, lane);   // 별이 줄어든 자리는 진주로
+        else if (r < .31 && !(z - s0 > 200 && r >= .22375)) addBox(z, lane);   // 별이 줄어든 자리는 진주로
         else if (r < .75) for (let k = 0; k < 5; k++) addPearl(z - 5 + k * 2, lane);
       }
     }
@@ -2009,6 +2032,7 @@ function buildCourse(seed){
   }
   obstacles.sort((a, b) => a.z - b.z);
   platforms.sort((a, b) => a.z0 - b.z0);
+  for (const arr of [pearls, rings, shields, itemBoxes, goldItems]) arr.sort((a, b) => a.z - b.z);
 }
 
 // ---------- 시상식: 결승선 너머 1·2·3등 단상 + 바다 친구들 관중 ----------
@@ -2445,7 +2469,7 @@ function updatePodium(dt){
 
 // ---------- 게임 상태 ----------
 let state = 'title', t = 0, raceTime = 0, cd = 0, gauge = 0, pearlCount = 0, shake = 0, giantCount = 0, lastRun = null;   // giantCount·lastRun = 점수표용
-let stage = 1, warpDist = 0, warpCd = 0, warpSnap = false;   // 무한 레이스: 스테이지, 지금까지 워프로 지나온 거리
+let stage = 1, warpDist = 0, warpCd = 0, warpSnap = false, curSeg = 0;   // 무한 레이스: 스테이지, 지금까지 워프로 지나온 거리
 const MAX_HP = 3;
 let finishOrder = [], resultTimer = -1, seed = 1, prevRank = 0, overtakeCd = 0;
 function resetRace(fixedSeed){
@@ -2462,7 +2486,7 @@ function resetRace(fixedSeed){
   for (const r of racers){ r.podRank = 0; r.emoteT = 0; }
   clearEffects(); itemRoll = 0; playerPlace = 5; prevRank = 0; overtakeCd = 0; faceOverrideT = 0;
   Object.assign(anim, { twirl: 0, hop: 0, throwT: 0, squash: 0, wasAir: false, jumpT: -1 });
-  stage = 1; warpDist = 0; warpCd = 0; renderHP(); setFinishSign();
+  stage = 1; warpDist = 0; warpCd = 0; curSeg = 0; renderHP(); setFinishSign();
   gauge = 0; pearlCount = 0; giantCount = 0; finishOrder = []; resultTimer = -1; raceTime = 0; shake = 0;
   shieldBubble.visible = false;
 }
@@ -2710,19 +2734,17 @@ addEventListener('keydown', audioInit, { capture: true });
 
 function toast(msg){ const el = $('toast'); el.textContent = msg; el.style.opacity = 1; clearTimeout(toast.h); toast.h = setTimeout(() => el.style.opacity = 0, 900); }
 function warpCheck(dt){
-  warpCd -= dt;
-  const lead = Math.max(...racers.filter(r => !r.dead).map(r => r.dist));
-  if (lead < TRACK_LEN - 30 || warpCd > 0) return;
-  warpCd = 2;
-  const shift = lead - 45;
-  warpDist += shift; stage++;
-  buildCourse(seed++); warpSnap = true; setFinishSign();   // 화면 번쩍임 전환 없이 자막만
-  for (const r of racers){
-    Object.assign(r, { dist: Math.max(4 + Math.random() * 6, r.dist - shift), y: 0, vy: 0, floor: 0, doubled: false, dblPending: false, autoJumpT: 0, climbUntil: 0, holdZ: null,
-      decided: new Set(), pendingJump: null, jumpFrom: 0 });
-    r.base = r.base0 * (1 + .5 * (stage - 1));   // 스테이지마다 기본 속도 +0.5배 (1 → 1.5 → 2 → 2.5배 …)
-  }
-  clearEffects();
+  // 한 바퀴를 다 돌면 모두의 거리를 한 바퀴만큼 줄임 → 위치는 그대로라 화면은 끊기지 않음
+  if (player.dist >= PATH_LEN){ for (const r of racers) r.dist -= PATH_LEN; warpDist += PATH_LEN; }
+  // 앞서간 친구는 한 바퀴 이음매를 너무 많이 넘지 않게 (장애물 판정이 엇갈리지 않도록)
+  for (const r of racers) if (r !== player && r.dist > PATH_LEN + 50) r.dist = PATH_LEN + 50;
+  const seg = player.dist >= TRACK_LEN && player.dist < PATH_LEN ? 1 : 0;
+  if (seg === curSeg) return;
+  curSeg = seg; stage++;
+  // 방금 지나온 구간(뒤쪽, 화면 밖)을 다음 스테이지용으로 새로 깔기
+  const [b0, b1] = SEGS()[1 - seg]; buildSegment(seed++, b0, b1, stage + 1);
+  setFinishSign();
+  for (const r of racers) r.base = r.base0 * (1 + .5 * (stage - 1));   // 스테이지마다 기본 속도 +0.5배 (1 → 1.5 → 2 → 2.5배 …)
   $('center').textContent = `🌊 스테이지 ${stage}!`; setTimeout(() => { if (state === 'race' && $('center').textContent.startsWith('🌊')) $('center').textContent = ''; }, 1400);
   sfx('gold'); toast(`속도 ${(1 + .5 * (stage - 1)).toFixed(1)}배! 끝까지 버텨 봐요`);
   renderHP();
@@ -3040,7 +3062,6 @@ function updateRacer(r, dt){
     if (!r.isPlayer) ai(r, dt);
     collide(r);
     jumpClearCheck(r, prevDist);
-    if (r.dist >= TRACK_LEN - 3) r.dist = TRACK_LEN - 3;   // 무한 레이스: 결승 없음 (선두가 끝에 닿으면 다음 스테이지로 워프)
   }
 }
 const ORD = ['1위','2위','3위','4위','5위'];
@@ -3071,7 +3092,7 @@ function updateHUD(){
   document.body.classList.toggle('inked', player.inked > 0 && state === 'race');
   $('pearls').textContent = `🫧 ${pearlCount}`;
   if (state === 'race' && ((t * 4) | 0) !== updateHUD.k){ updateHUD.k = (t * 4) | 0; $('stageHud').textContent = `🌊 스테이지 ${stage} · ${Math.floor(warpDist + Math.max(0, player.dist))}m`; }
-  racers.forEach((r, i) => { $('mk' + i).style.left = `calc(14px + (100% - 28px) * ${clamp(r.dist / TRACK_LEN, 0, 1)})`; });
+  { const [g0, g1] = SEGS()[curSeg]; racers.forEach((r, i) => { $('mk' + i).style.left = `calc(14px + (100% - 28px) * ${clamp((r.dist - g0) / (g1 - g0), 0, 1)})`; }); }
   $('boostFill').style.height = gauge + '%';
   $('boostBtn').classList.toggle('ready', gauge >= 100);
   document.body.classList.toggle('boosting', player.boost > 0 && state === 'race');
